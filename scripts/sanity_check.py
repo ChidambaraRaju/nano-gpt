@@ -197,8 +197,8 @@ try:
     }
     torch.save(checkpoint, tmp_path)
 
-    # Load checkpoint
-    loaded = torch.load(tmp_path, map_location='cpu')
+    # Load checkpoint (weights_only=False for PyTorch 2.6+ compatibility)
+    loaded = torch.load(tmp_path, map_location='cpu', weights_only=False)
 
     assert loaded["step"] == 100
     assert loaded["best_val_loss"] == 3.5
