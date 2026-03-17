@@ -8,6 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
 
+from pico_gpt.config import ModelConfig
+
 
 class CausalSelfAttention(nn.Module):
     """
@@ -191,3 +193,159 @@ class TransformerBlock(nn.Module):
         x = x + self.mlp(self.ln_2(x))
 
         return x
+
+
+class GPT(nn.Module):
+    """
+    GPT-style decoder-only transformer model.
+
+    Architecture:
+        Token Embedding
+        + Positional Embedding
+            ↓
+        Transformer Block × n_layer
+            ↓
+        Final LayerNorm
+            ↓
+        Language Modeling Head (tied weights)
+
+    Reference: @instructions/04_model_architecture.md
+    """
+
+    def __init__(self, config: ModelConfig):
+        """
+        Initialize GPT model.
+
+        Args:
+            config: ModelConfig instance
+        """
+        super().__init__()
+        self.config = config
+
+        # Token and positional embeddings
+        self.wte = nn.Embedding(config.vocab_size, config.n_embd)
+        self.wpe = nn.Embedding(config.context_length, config.n_embd)
+
+        # Dropout for embeddings
+        self.drop = nn.Dropout(config.dropout)
+
+        # Transformer blocks
+        self.blocks = nn.ModuleList([
+            TransformerBlock(
+                n_embd=config.n_embd,
+                n_head=config.n_head,
+                ffn_dim=config.ffn_dim,
+                dropout=config.dropout,
+                bias=config.bias,
+                context_length=config.context_length,
+            )
+            for _ in range(config.n_layer)
+        ])
+
+        # Final layer norm
+        self.ln_f = nn.LayerNorm(config.n_embd)
+
+        # Language modeling head
+        if config.weight_tying:
+            self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+            self.lm_head.weight = self.wte.weight
+        else:
+            self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        # Initialize weights
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        """
+        Initialize weights following GPT-2 conventions.
+
+        Reference: @instructions/04_model_architecture.md
+        """
+        if isinstance(module, nn.Linear):
+            # Normal distribution with std = 0.02
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.LayerNorm):
+            torch.nn.init.zeros_(module.bias)
+            torch.nn.init.ones_(module.weight)
+
+    def forward(self, idx: torch.Tensor, targets: Optional[torch.Tensor] = None):
+        """
+        Forward pass.
+
+        Args:
+            idx: Input token ids of shape (B, T)
+            targets: Target token ids of shape (B, T), optional
+
+        Returns:
+            logits: Shape (B, T, vocab_size)
+            loss: Cross-entropy loss if targets provided, else None
+        """
+        B, T = idx.size()
+
+        assert T <= self.config.context_length, f"Sequence length {T} exceeds context length {self.config.context_length}"
+
+        # Token and positional embeddings
+        tok_emb = self.wte(idx)  # (B, T, n_embd)
+        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)  # (T,)
+        pos_emb = self.wpe(pos)  # (T, n_embd)
+        x = self.drop(tok_emb + pos_emb)  # (B, T, n_embd)
+
+        # Transformer blocks
+        for block in self.blocks:
+            x = block(x)  # (B, T, n_embd)
+
+        # Final layer norm
+        x = self.ln_f(x)  # (B, T, n_embd)
+
+        # LM head
+        logits = self.lm_head(x)  # (B, T, vocab_size)
+
+        # Compute loss if targets provided
+        loss = None
+        if targets is not None:
+            # Cross-entropy loss
+            loss = F.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                targets.view(-1),
+                ignore_index=-1,
+            )
+
+        return logits, loss
+
+    @torch.no_grad()
+    def generate(self, idx: torch.Tensor, max_new_tokens: int, temperature: float = 1.0) -> torch.Tensor:
+        """
+        Generate tokens autoregressively.
+
+        Args:
+            idx: Input token ids of shape (B, T)
+            max_new_tokens: Maximum number of new tokens to generate
+            temperature: Sampling temperature
+
+        Returns:
+            Generated tokens of shape (B, T + max_new_tokens)
+        """
+        for _ in range(max_new_tokens):
+            # If context exceeded, truncate from left
+            idx_cond = idx if idx.size(1) <= self.config.context_length else idx[:, -self.config.context_length:]
+
+            # Forward pass
+            logits, _ = self(idx_cond)
+
+            # Only use logits for last position
+            logits = logits[:, -1, :] / temperature
+
+            # Apply softmax to get probabilities
+            probs = F.softmax(logits, dim=-1)
+
+            # Sample next token
+            idx_next = torch.multinomial(probs, num_samples=1)
+
+            # Append to sequence
+            idx = torch.cat([idx, idx_next], dim=1)
+
+        return idx
