@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Optional
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import save_model
 
 from pico_gpt.model import GPT
 from pico_gpt.config import ModelConfig
@@ -48,7 +48,8 @@ def export_to_huggingface(
     print(f"Exporting model to {output_path}...")
 
     # Save model weights in safetensors format
-    save_file(model.state_dict(), output_path / "model.safetensors")
+    # Using save_model to handle shared tensors from weight tying
+    save_model(model, output_path / "model.safetensors")
 
     # Create config.json
     config_dict = {
@@ -123,15 +124,15 @@ A small GPT-style decoder-only language model (~35M parameters) trained from scr
 
 ```python
 import torch
-from safetensors.torch import load_file
+from safetensors.torch import load_model
 import json
 
 # Load config
 with open("config.json", "r") as f:
     config = json.load(f)
 
-# Load weights
-state_dict = load_file("model.safetensors")
+# Load model (load_model handles shared tensors)
+state_dict = load_model("model.safetensors")
 
 # Create model and load state_dict
 # (requires custom model class from pico_gpt/model.py)

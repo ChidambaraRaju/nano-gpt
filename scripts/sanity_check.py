@@ -220,17 +220,17 @@ except Exception as e:
 # Test 9: Safetensors export (if available)
 print("\n[Test 9] Checking safetensors export...")
 try:
-    from safetensors.torch import save_file, load_file
+    from safetensors.torch import save_model, load_model
 
     tmp_path = Path(tempfile.gettempdir()) / "test_model.safetensors"
 
-    # Save
-    save_file(model.state_dict(), tmp_path)
+    # Save using save_model (handles shared tensors from weight tying)
+    save_model(model, tmp_path)
 
     # Load
-    loaded_state = load_file(tmp_path)
+    loaded_state = load_model(tmp_path)
 
-    # Verify keys match
+    # Verify keys match (save_model handles shared tensors properly)
     assert set(loaded_state.keys()) == set(model.state_dict().keys())
 
     # Verify shapes match
