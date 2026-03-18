@@ -26,7 +26,7 @@ class ModelConfig:
     flash_attention: bool = True
 
     # Weight tying
-    weight_tying: bool = True
+    weight_tying: bool = False
 
     def __post_init__(self):
         """Validate configuration."""
