@@ -70,6 +70,7 @@ class TokenBuffer:
         self.buffer: List[int] = []
         self.total_processed = 0
         self.shard_index = 0
+        self.tokens_written_to_disk = 0  # Track cumulative tokens written
 
     def add_tokens(self, tokens: List[int]) -> bool:
         """
@@ -90,31 +91,46 @@ class TokenBuffer:
         while len(self.buffer) >= self.shard_size and self.total_processed < self.total_tokens:
             shard_tokens = self.buffer[:self.shard_size]
             self.buffer = self.buffer[self.shard_size:]
-            self._write_shard(shard_tokens)
+            train_tokens_written = self._write_shard(shard_tokens, self.tokens_written_to_disk)
+            self.tokens_written_to_disk += train_tokens_written
 
         return True
 
-    def _write_shard(self, tokens: List[int]) -> None:
-        """Write a shard to disk (either train or validation)."""
-        # Determine if this should be train or validation
-        tokens_so_far = self.total_processed - len(self.buffer)
-        train_tokens_so_far = min(tokens_so_far, self.train_tokens)
+    def _write_shard(self, tokens: List[int], position: int) -> int:
+        """
+        Write a shard to disk (either train or validation).
 
-        if train_tokens_so_far + len(tokens) <= self.train_tokens:
+        Args:
+            tokens: The token list to write
+            position: Position of first token in the overall stream
+
+        Returns:
+            Number of training tokens written (for position tracking)
+        """
+        # Determine split based on position in the stream
+        # Train: [0, total_tokens - val_tokens)
+        # Val: [total_tokens - val_tokens, total_tokens)
+        train_end = self.total_tokens - self.val_tokens
+
+        if position + len(tokens) <= train_end:
             # Pure training shard
             self._write_train_shard(tokens, self.shard_index)
-        elif train_tokens_so_far >= self.train_tokens:
+            self.shard_index += 1
+            return len(tokens)
+        elif position >= train_end:
             # Pure validation shard
             self._write_val_shard(tokens)
+            return 0
         else:
             # Split shard - part train, part validation
-            remaining_train = self.train_tokens - train_tokens_so_far
+            remaining_train = train_end - position
             train_tokens = tokens[:remaining_train]
             val_tokens = tokens[remaining_train:]
             self._write_train_shard(train_tokens, self.shard_index)
+            self.shard_index += 1
+            # Validation appends to val.bin
             self._write_val_shard(val_tokens)
-
-        self.shard_index += 1
+            return len(train_tokens)
 
     def _write_train_shard(self, tokens: List[int], index: int) -> None:
         """Write training shard to disk."""
@@ -122,16 +138,21 @@ class TokenBuffer:
         np.array(tokens, dtype=np.uint16).tofile(path)
 
     def _write_val_shard(self, tokens: List[int]) -> None:
-        """Write validation shard to disk."""
+        """Write validation shard to disk (append mode)."""
         path = self.output_dir / "val.bin"
-        np.array(tokens, dtype=np.uint16).tofile(path)
+        # Append if file exists, otherwise create new
+        if path.exists():
+            with open(path, 'ab') as f:
+                np.array(tokens, dtype=np.uint16).tofile(f)
+        else:
+            np.array(tokens, dtype=np.uint16).tofile(path)
 
     def finalize(self) -> None:
         """Write any remaining tokens in buffer."""
         if self.buffer and self.total_processed <= self.total_tokens:
-            # Determine if remaining tokens are train or validation
-            train_tokens_so_far = min(self.total_processed, self.train_tokens)
-            if train_tokens_so_far < self.train_tokens:
-                self._write_train_shard(self.buffer, self.shard_index)
+            train_end = self.total_tokens - self.val_tokens
+            if self.tokens_written_to_disk < train_end:
+                train_tokens_written = self._write_shard(self.buffer, self.tokens_written_to_disk)
+                self.tokens_written_to_disk += train_tokens_written
             else:
                 self._write_val_shard(self.buffer)
