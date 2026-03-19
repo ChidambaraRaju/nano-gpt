@@ -38,44 +38,29 @@ class TrainingConfig:
     # Dataset
     data_dir: str = "data"
     shard_size: int = 5_000_000  # tokens per shard
-    total_tokens: int = 100_000_000  # total training tokens
-    val_tokens: int = 5_000_000  # validation tokens
+    total_tokens: int = 1_000_000_000  # total training tokens (1B)
+    val_tokens: int = 50_000_000  # validation tokens (50M)
 
     # Training hyperparameters
     batch_size: int = 64
-    micro_batch_size: int = 8
-    gradient_accumulation_steps: int = field(init=False)
 
     # Optimizer
     learning_rate: float = 3e-4
     weight_decay: float = 0.1
     betas: tuple = (0.9, 0.95)
 
-    # Learning rate schedule
-    warmup_steps: int = 2000
-    min_lr: float = 3e-5
-
     # Training
     max_steps: int = 200_000
-    eval_interval: int = 200
     checkpoint_interval: int = 1000
     grad_clip: float = 1.0
-
-    # Checkpoints
-    checkpoint_dir: str = "checkpoints"
-    resume_from: Optional[str] = None
 
     # Logging
     log_interval: int = 1
     output_dir: str = "outputs"
 
-    # Mixed precision
-    use_bf16: bool = True
-
     def __post_init__(self):
-        """Validate and compute derived values."""
-        self.gradient_accumulation_steps = self.batch_size // self.micro_batch_size
-        assert self.batch_size % self.micro_batch_size == 0, "batch_size must be divisible by micro_batch_size"
+        """Validate configuration."""
+        pass
 
 
 @dataclass

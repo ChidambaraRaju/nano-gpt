@@ -14,12 +14,13 @@ def main():
     parser = argparse.ArgumentParser(description="Export Pico-GPT to Hugging Face format")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint")
     parser.add_argument("--output", type=str, default="hf_model", help="Output directory")
+    parser.add_argument("--training-log", type=str, default=None, help="Path to training_log.csv file")
     parser.add_argument("--upload", type=str, default=None, help="Upload to Hugging Face (repo_id)")
     parser.add_argument("--private", action="store_true", help="Make repository private")
     args = parser.parse_args()
 
     # Export model
-    export_to_huggingface(args.checkpoint, args.output)
+    export_to_huggingface(args.checkpoint, args.output, training_log_path=args.training_log)
 
     # Upload if requested
     if args.upload:
