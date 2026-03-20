@@ -91,9 +91,9 @@ try:
     param_count = sum(p.numel() for p in model.parameters())
     print(f"  ✓ Model created with {param_count:,} parameters")
 
-    # Verify approximate parameter count (~30M for our config)
-    if 25_000_000 < param_count < 40_000_000:
-        print(f"  ✓ Parameter count in expected range (~30M)")
+    # Verify approximate parameter count (~49M for our config)
+    if 40_000_000 < param_count < 60_000_000:
+        print(f"  ✓ Parameter count in expected range (~49M)")
     else:
         print(f"  ⚠ Parameter count {param_count:,} seems unexpected")
 except Exception as e:
