@@ -699,7 +699,7 @@ Pico-GPT is inspired by and builds upon the following work:
 
 ## License
 
-[Specify your license here]
+MIT License
 
 ---
 
