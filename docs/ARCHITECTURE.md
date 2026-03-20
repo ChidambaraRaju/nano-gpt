@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pico-GPT is a decoder-only transformer language model with approximately 35M parameters. It follows GPT architecture design principles with modern optimizations.
+Pico-GPT is a decoder-only transformer language model with approximately 49M parameters. It follows GPT architecture design principles with modern optimizations.
 
 ## Model Architecture
 

@@ -1,6 +1,6 @@
 # Pico-GPT Training Manual
 
-Complete guide to train a GPT-style Small Language Model (~30M parameters) from scratch using the Pico-GPT pipeline.
+Complete guide to train a GPT-style Small Language Model (~49M parameters) from scratch using the Pico-GPT pipeline.
 
 ---
 
@@ -111,24 +111,20 @@ The `train.py` script trains the model using the prepared dataset.
 | `vocab_size` | 50,257 | GPT-2 vocabulary |
 | `context_length` | 128 | Maximum sequence length |
 | `ffn_dim` | 1,536 | Feedforward dimension (4×n_embd) |
-| **Total Parameters** | **~30M** |  |
+| **Total Parameters** | **~49M** |  |
 
 ### Training Configuration
 
 | Parameter | Default | Description |
 |-----------|----------|-------------|
-| `batch_size` | 64 | Total batch size |
-| `micro_batch_size` | 8 | Batch size per GPU step |
-| `gradient_accumulation` | 8 | Accumulation steps (64/8) |
-| `learning_rate` | `3e-4` | Peak learning rate |
+| `batch_size` | 64 | Batch size |
+| `learning_rate` | `3e-4` | Learning rate |
 | `weight_decay` | `0.1` | L2 regularization |
-| `warmup_steps` | 2,000 | Linear warmup steps |
-| `min_lr` | `3e-5` | Minimum learning rate |
 | `max_steps` | 200,000 | Total training steps |
-| `eval_interval` | 200 | Validation every 200 steps |
 | `checkpoint_interval` | 1,000 | Checkpoint every 1k steps |
 | `grad_clip` | `1.0` | Gradient clipping threshold |
-| `use_bf16` | True | Mixed precision training |
+
+> **Note**: Learning rate is constant (no scheduler), no warmup, no gradient accumulation, and no BF16 mixed precision.
 
 ### Running the Script
 
@@ -139,21 +135,13 @@ python scripts/train.py
 ### Expected Output
 
 ```
-Model config: ModelConfig(n_layer=6, n_head=6, n_embd=384, ...)
-Training config: TrainingConfig(batch_size=64, learning_rate=3e-4, ...)
-Model parameters: 29,974,656
-Training tokens: 950,000,000
-Validation tokens: 50,000,000
+Training on cuda
+Max steps: 200000
 
-Starting training for 200000 steps...
-Device: cuda
-BF16: True
-Batch size: 64 (micro: 8, grad_acc: 8)
-
-Step     10 | Loss: 10.8234 | LR: 1.53e-06 | Time: 2.3s
-Step     20 | Loss: 10.4567 | LR: 3.06e-06 | Time: 4.6s
-  -> Val Loss: 10.2345
-  Saved checkpoint: best_model.pt
+Step      1 | Loss: 10.8234 | Time: 0.5s
+Step    100 | Loss: 9.4567 | Time: 45.2s
+Step   1000 | Loss: 8.1234 | Time: 450.1s
+Saved checkpoint: outputs/checkpoint_step_1000.pt
 ...
 ```
 
@@ -161,37 +149,30 @@ Step     20 | Loss: 10.4567 | LR: 3.06e-06 | Time: 4.6s
 
 | Checkpoint | When Saved | Description |
 |-----------|------------|-------------|
-| `best_model.pt` | On improved val loss | Best performing checkpoint |
-| `checkpoint_1000.pt` | Every 1,000 steps | Periodic checkpoints |
-| `checkpoint_2000.pt` | Every 1,000 steps | Periodic checkpoints |
-| ... | ... | ... |
-| `final_model.pt` | At training end | Final model state |
+| `checkpoint_step_*.pt` | Every 1,000 steps | Periodic checkpoints |
+| `model_step_200000.safetensors` | At training end | Final model in safetensors format |
+
+> **Note**: No validation loop exists, so there is no "best" checkpoint based on validation loss.
 
 ### Training Logs
 
-The script creates `checkpoints/training_log.csv` with step-by-step metrics:
+The script creates `outputs/training_log.csv` with step-by-step metrics:
 
 ```csv
-step,train_loss,val_loss,lr
-0,10.8234,10.2345,1.53e-06
-10,10.4567,9.9876,3.06e-06
+step,loss,elapsed_time
+1,10.8234,0.5
+100,9.4567,45.2
 ...
 ```
 
-### Resume Training
-
-If training is interrupted, resume from a checkpoint:
-
-```bash
-python scripts/train.py --resume checkpoints/checkpoint_1000.pt
-```
+> **Note**: Resume functionality is not yet implemented. If training is interrupted, you'll need to restart from the beginning.
 
 ### Override Training Steps
 
 For shorter training runs:
 
 ```bash
-python scripts/train.py --max-steps 10000
+python scripts/train.py --max-steps 1000
 ```
 
 ### Expected Training Time
@@ -338,13 +319,7 @@ print(checkpoint.keys())
 
 ### Slow Training
 
-Enable BF16 mixed precision (default) for faster training:
-
-```bash
-python scripts/train.py  # use_bf16=True by default
-```
-
-If BF16 is not supported, training will automatically fall back to FP32.
+Training uses FP32 by default. For faster training, you may want to implement BF16 mixed precision training in the future.
 
 ---
 
@@ -360,16 +335,16 @@ python scripts/prepare_data.py
 python scripts/train.py
 
 # 3. Generate text
-python scripts/generate.py --model checkpoints/best_model.pt
+python scripts/generate.py --model outputs/model_step_200000.safetensors
 
 # 4. Export to HuggingFace
-python scripts/export_hf.py --checkpoint checkpoints/best_model.pt --upload username/repo
+python scripts/export_hf.py --checkpoint outputs/model_step_200000.safetensors --upload username/repo
 ```
 
 ### Test Run (Small Scale)
 
 ```bash
-# Prepare 10M tokens instead of 100M
+# Prepare 10M tokens instead of 1B
 python scripts/prepare_data.py --total-tokens 10000000 --val-tokens 500000
 
 # Train for 1000 steps instead of 200k
@@ -389,7 +364,7 @@ python scripts/prepare_data.py
 python scripts/train.py
 
 # Export and upload
-python scripts/export_hf.py --checkpoint checkpoints/best_model.pt --upload username/pico-gpt
+python scripts/export_hf.py --checkpoint outputs/model_step_200000.safetensors --upload username/pico-gpt
 ```
 
 ---
@@ -405,11 +380,9 @@ pico-gpt/
 │   ├── train_018.bin
 │   ├── val.bin                    # Validation shard (5M tokens)
 │   └── preprocessing_state.json   # Resume state
-├── checkpoints/                    # Training outputs
-│   ├── best_model.pt              # Best checkpoint
-│   ├── checkpoint_1000.pt
-│   ├── checkpoint_2000.pt
-│   ├── ...
+├── outputs/                       # Training outputs
+│   ├── checkpoint_step_*.pt       # Periodic checkpoints
+│   ├── model_step_200000.safetensors  # Final model
 │   └── training_log.csv          # Training metrics
 └── hf_model/                      # HuggingFace export
     ├── model.safetensors
@@ -424,7 +397,7 @@ pico-gpt/
 
 After successful training:
 
-1. **Analyze training curves** - Plot loss from `training_log.csv`
+1. **Analyze training loss** - Plot loss from `training_log.csv`
 2. **Generate samples** - Test model with various prompts
 3. **Upload to HuggingFace** - Share your model with the community
 4. **Fine-tune** - Consider fine-tuning on specific domains
