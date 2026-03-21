@@ -86,23 +86,34 @@ def export_to_huggingface(
     output_path.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading checkpoint from {checkpoint_path}...")
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint_path_obj = Path(checkpoint_path)
 
-    # Get config
-    if "config" in checkpoint:
-        config = checkpoint["config"]
-    else:
+    # Handle different checkpoint types
+    if checkpoint_path_obj.suffix == ".safetensors":
+        # Load safetensors file
+        from safetensors.torch import load_file
+        state_dict = load_file(str(checkpoint_path_obj))
         config = ModelConfig()
-
-    # Get training config if available
-    training_config = checkpoint.get("training_config", {})
-
-    # Load model weights
-    model = GPT(config)
-    if "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
+        training_config = {}
+        # Create model
+        model = GPT(config)
+        model.load_state_dict(state_dict)
     else:
-        model.load_state_dict(checkpoint)
+        # Load PyTorch checkpoint
+        checkpoint = torch.load(str(checkpoint_path_obj), map_location="cpu", weights_only=False)
+        # Get config
+        if "config" in checkpoint:
+            config = checkpoint["config"]
+        else:
+            config = ModelConfig()
+        # Get training config if available
+        training_config = checkpoint.get("training_config", {})
+        # Load model weights
+        model = GPT(config)
+        if "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            model.load_state_dict(checkpoint)
 
     print(f"Exporting model to {output_path}...")
 
@@ -237,7 +248,7 @@ A small GPT-style decoder-only language model (~{param_count/1e6:.1f}M parameter
 
 The model was trained using **causal language modeling (next-token prediction)**. The loss function is cross-entropy over the vocabulary.
 
-For a given sequence of tokens `x_1, x_2, ..., x_n`, the model is trained to predict `x_{i+1}` given `x_1, ..., x_i`.
+For a given sequence of tokens `x_1, x_2, ..., x_n`, the model is trained to predict `x_{{i+1}}` given `x_1, ..., x_i`.
 
 ## Dataset
 

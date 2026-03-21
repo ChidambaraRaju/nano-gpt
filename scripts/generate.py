@@ -24,20 +24,26 @@ def load_model(checkpoint_path: str) -> tuple[GPT, GPT2Tokenizer]:
     Returns:
         Model and tokenizer
     """
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
-
     # Use default config (always available from pico_gpt.config)
     config = ModelConfig()
 
     # Create model
     model = GPT(config)
 
-    # Load state dict
-    if "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
+    # Load checkpoint based on file type
+    checkpoint_path = Path(checkpoint_path)
+    if checkpoint_path.suffix == ".safetensors":
+        # Load safetensors file
+        from safetensors.torch import load_file
+        state_dict = load_file(str(checkpoint_path))
+        model.load_state_dict(state_dict)
     else:
-        model.load_state_dict(checkpoint)
+        # Load PyTorch checkpoint
+        checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
+        if "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            model.load_state_dict(checkpoint)
 
     model.eval()
 
