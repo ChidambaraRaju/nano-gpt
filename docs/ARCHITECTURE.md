@@ -27,10 +27,12 @@ Embedding Sum + Dropout
         ↓
 Final LayerNorm
         ↓
-LM Head (384 x 50257)
+LM Head (384 x 50257) - separate from token embedding
         ↓
 Logits (B, T, 50257)
 ```
+
+> **Note:** The model uses separate embedding (`wte`) and output (`lm_head`) layers. Weight tying is not implemented, which increases parameter count but simplifies the architecture.
 
 ## Components
 
@@ -58,23 +60,28 @@ Logits (B, T, 50257)
 ### Optimization
 
 - **Optimizer:** AdamW
-- **Weight Decay:** 0.1 (excluded from LayerNorm/embeddings)
-- **Learning Rate:** 3e-4 peak, cosine decay to 3e-5
-- **Warmup:** 2K steps (linear)
+- **Weight Decay:** 0.1
+- **Learning Rate:** 3e-4 (constant)
+- **Betas:** (0.9, 0.95)
 - **Gradient Clipping:** 1.0
-- **Mixed Precision:** BF16 (autocast)
+
+> **Note:** The current implementation uses a constant learning rate. Cosine decay with warmup is planned but not yet implemented.
 
 ### Data Pipeline
 
 - **Format:** Memory-mapped binary shards (uint16)
 - **Shard Size:** 5M tokens
 - **Sampling:** Random window sampling
-- **Gradient Accumulation:** Configurable (default: 8 micro-batches)
 
 ### Regularization
 
 - **Dropout:** 0.1 (embeddings, residual connections, attention)
-- **Label Smoothing:** None
+
+### Training Outputs
+
+- **Checkpoints:** PyTorch `.pt` format (checkpoint_step_N.pt)
+- **Safetensors:** Exported automatically for Hugging Face compatibility
+- **Training Log:** CSV file with step, loss, and elapsed time
 
 ## Inference
 
@@ -91,6 +98,7 @@ Logits (B, T, 50257)
 2. **Fused QKV:** Reduces memory allocations, improves efficiency
 3. **Flash Attention:** Leverages optimized kernels on A100
 4. **Learned Positional Embeddings:** Simple, effective for short context
+5. **Separate Output Layer:** No weight tying between embeddings and LM head for simplicity
 
 ## References
 

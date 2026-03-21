@@ -27,26 +27,45 @@ class ModelConfig:
 ```python
 @dataclass
 class TrainingConfig:
+    """Training loop configuration."""
+
+    # Dataset
     data_dir: str = "data"
-    shard_size: int = 5_000_000
-    total_tokens: int = 100_000_000
-    val_tokens: int = 5_000_000
+    shard_size: int = 5_000_000  # tokens per shard
+    total_tokens: int = 1_000_000_000  # total training tokens (1B)
+    val_tokens: int = 50_000_000  # validation tokens (50M)
+
+    # Training hyperparameters
     batch_size: int = 64
-    micro_batch_size: int = 8
+
+    # Optimizer
     learning_rate: float = 3e-4
     weight_decay: float = 0.1
     betas: tuple = (0.9, 0.95)
-    warmup_steps: int = 2000
-    min_lr: float = 3e-5
+
+    # Training
     max_steps: int = 200_000
-    eval_interval: int = 200
     checkpoint_interval: int = 1000
     grad_clip: float = 1.0
-    checkpoint_dir: str = "checkpoints"
-    resume_from: Optional[str] = None
+
+    # Logging
     log_interval: int = 1
     output_dir: str = "outputs"
-    use_bf16: bool = True
+```
+
+> **Note:** The current implementation uses a simplified training loop. Advanced features like gradient accumulation, learning rate scheduling, and validation loops are not yet implemented.
+
+#### `GenerationConfig`
+
+```python
+@dataclass
+class GenerationConfig:
+    """Text generation configuration."""
+
+    model_path: str = "checkpoints/best_model.pt"
+    max_new_tokens: int = 100
+    temperature: float = 0.8
+    prompt: str = "The future of artificial intelligence is"
 ```
 
 ### `pico_gpt.tokenizer`
@@ -106,7 +125,8 @@ class GPT(nn.Module):
         self,
         idx: torch.Tensor,
         max_new_tokens: int,
-        temperature: float = 1.0
+        temperature: float = 1.0,
+        eos_token_id: Optional[int] = None
     ) -> torch.Tensor:
         """
         Generate tokens autoregressively.
@@ -115,6 +135,7 @@ class GPT(nn.Module):
             idx: Input token ids (B, T)
             max_new_tokens: Maximum new tokens
             temperature: Sampling temperature
+            eos_token_id: EOS token ID to stop generation (optional)
 
         Returns:
             Generated tokens (B, T + max_new_tokens)
@@ -145,6 +166,56 @@ class MemoryMappedDataset:
 
     def __len__(self) -> int:
         """Number of valid start positions."""
+
+    @property
+    def n_tokens(self) -> int:
+        """Total number of tokens in dataset."""
+```
+
+### `pico_gpt.data`
+
+Dataset preprocessing utilities.
+
+#### `PreprocessingState`
+
+```python
+@dataclass
+class PreprocessingState:
+    """State for dataset preprocessing resume capability."""
+
+    shard_index: int  # Current shard being filled
+    tokens_written: int  # Tokens in current shard
+    total_tokens: int  # Total tokens processed across all shards
+    total_processed: int = 0  # Cumulative tokens processed
+
+    def save(self, path: Path) -> None:
+        """Save state to JSON file."""
+
+    @classmethod
+    def load(cls, path: Path) -> "PreprocessingState":
+        """Load state from JSON file."""
+```
+
+#### `TokenBuffer`
+
+```python
+class TokenBuffer:
+    """Buffer for accumulating tokens during streaming preprocessing."""
+
+    def __init__(
+        self,
+        output_dir: Path,
+        shard_size: int = 5_000_000,
+        total_tokens: int = 100_000_000,
+        val_tokens: int = 5_000_000,
+    ) -> None:
+        """Initialize token buffer."""
+
+    def add_tokens(self, tokens: List[int]) -> bool:
+        """Add tokens to buffer and write shards as needed."""
+
+    def finalize(self) -> None:
+        """Write any remaining tokens in buffer."""
 ```
 
 ### `pico_gpt.trainer`
@@ -155,35 +226,46 @@ Training loop utilities.
 
 ```python
 class Trainer:
-    """Training loop for Pico-GPT."""
+    """Minimal training loop for Pico-GPT."""
 
     def __init__(
         self,
         model: GPT,
         train_loader: MemoryMappedDataset,
-        val_loader: Optional[MemoryMappedDataset],
         output_dir: str,
+        config: ModelConfig,
         max_steps: int,
-        **kwargs
+        learning_rate: float = 3e-4,
+        weight_decay: float = 0.1,
+        checkpoint_interval: int = 1000,
+        log_interval: int = 100,
     ) -> None:
-        """Initialize trainer."""
+        """
+        Initialize trainer.
 
-    def train_step(self) -> Dict:
-        """Perform one training step."""
-
-    @torch.no_grad()
-    def validate(self) -> Optional[float]:
-        """Run validation loop."""
+        Args:
+            model: GPT model to train
+            train_loader: Training dataset loader
+            output_dir: Directory for outputs and checkpoints
+            config: Model configuration
+            max_steps: Maximum training steps
+            learning_rate: Learning rate
+            weight_decay: Weight decay for optimizer
+            checkpoint_interval: Save checkpoint every N steps
+            log_interval: Print logs every N steps
+        """
 
     def train(self) -> None:
         """Main training loop."""
 
-    def save_checkpoint(self, filename: str) -> None:
-        """Save training checkpoint."""
+    def save_checkpoint(self, step: int, training_config: dict = None) -> None:
+        """Save model checkpoint in PyTorch format."""
 
-    def load_checkpoint(self, path: str) -> None:
-        """Load training checkpoint."""
+    def save_safetensors(self, step: int) -> None:
+        """Save model in safetensors format for Hugging Face export."""
 ```
+
+> **Note:** The current trainer implementation is minimal. It uses basic AdamW optimizer with gradient clipping. Validation loop, learning rate scheduling, and gradient accumulation are not yet implemented.
 
 ## Scripts
 
@@ -210,6 +292,14 @@ python scripts/train.py \
     --max-steps 200000
 ```
 
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--data-dir` | `data` | Directory containing binary shards |
+| `--output-dir` | `checkpoints` | Output directory for checkpoints |
+| `--max-steps` | `200000` | Maximum training steps |
+| `--lr` | `3e-4` | Learning rate |
+| `--checkpoint-interval` | `1000` | Save checkpoint every N steps |
+
 ### `scripts/generate.py`
 
 Generate text from trained model.
@@ -230,5 +320,79 @@ Export to Hugging Face format.
 python scripts/export_hf.py \
     --checkpoint checkpoints/best_model.pt \
     --output hf_model \
-    --upload username/pico-gpt
+    --training-log outputs/training_log.csv \
+    --upload username/pico-gpt \
+    --private
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--checkpoint` | Required | Path to model checkpoint |
+| `--output` | `hf_model` | Output directory |
+| `--training-log` | `None` | Path to training_log.csv file |
+| `--upload` | `None` | Upload to Hugging Face (repo_id) |
+| `--private` | `False` | Make repository private |
+
+## Additional Modules
+
+### `pico_gpt.export`
+
+Hugging Face export utilities.
+
+#### `export_to_huggingface`
+
+```python
+def export_to_huggingface(
+    checkpoint_path: str,
+    output_dir: str,
+    training_log_path: Optional[str] = None,
+) -> None:
+    """
+    Export model to Hugging Face format.
+
+    Creates:
+    - model.safetensors: Model weights
+    - config.json: Model architecture configuration
+    - training_config.json: Training hyperparameters
+    - training_log.csv: Training metrics (if provided)
+    - samples.txt: Generated text samples
+    - tokenizer_config.json: Tokenizer configuration
+    - special_tokens_map.json: Special tokens
+    - README.md: Model card
+    """
+```
+
+#### `upload_to_hub`
+
+```python
+def upload_to_hub(
+    repo_id: str,
+    model_dir: str,
+    private: bool = False,
+) -> None:
+    """
+    Upload model to Hugging Face Hub.
+
+    Requires huggingface-hub package and authentication.
+    """
+```
+
+### `pico_gpt.tokenizer_utils`
+
+Tokenizer metadata export utilities.
+
+#### `export_tokenizer_metadata`
+
+```python
+def export_tokenizer_metadata(
+    output_dir: str,
+    model_max_length: int = 128
+) -> None:
+    """
+    Export tokenizer metadata files for Hugging Face compatibility.
+
+    Creates:
+    - tokenizer_config.json
+    - special_tokens_map.json
+    """
 ```
