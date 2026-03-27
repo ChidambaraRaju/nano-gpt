@@ -109,7 +109,7 @@ class Trainer:
 
         start_time = time.time()
 
-        pbar = tqdm(total=self.max_steps, desc="Training", unit="step")
+        pbar = tqdm(range(self.max_steps), desc="Training", unit="step")
         for step in pbar:
             # Get batch
             x, y = self.train_loader.get_batch()
@@ -139,7 +139,6 @@ class Trainer:
             # Checkpointing (PyTorch format - fast)
             if (step + 1) % self.checkpoint_interval == 0:
                 self.save_checkpoint(step + 1)
-        pbar.close()
 
         # Final save
         final_loss = loss.item()
